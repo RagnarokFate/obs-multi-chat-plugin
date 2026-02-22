@@ -34,10 +34,10 @@ const youtubeManager = new YouTubeManager(io);
 const kickManager = new KickManager(io, process.env.KICK_CHANNEL);
 
 // Initialize Connections on Startup
-twitchManager.connect();
-youtubeManager.connect();
+twitchManager.connect().catch(err => console.error('[Startup] Twitch API init error, skipped.'));
+youtubeManager.connect().catch(err => console.error('[Startup] YouTube API init error, skipped.'));
 if (process.env.KICK_CHANNEL && process.env.KICK_CHANNEL !== "your_kick_channel_name") {
-    kickManager.connect();
+    kickManager.connect().catch(err => console.error('[Startup] Kick API init error, skipped.'));
 }
 
 // Basic multiplexing endpoint for Socket.io
@@ -74,9 +74,26 @@ app.get('/api/settings', (req, res) => {
 });
 
 app.post('/api/settings', (req, res) => {
-    const { maxMessages, showPlatformIcons } = req.body;
-    db.run("UPDATE settings SET maxMessages = ?, showPlatformIcons = ? WHERE id = 1",
-        [maxMessages, showPlatformIcons],
+    const { maxMessages, showPlatformIcons, fontSize, fontWeight, fontStyle, fontFamily, textWrap } = req.body;
+    db.run(
+        `UPDATE settings SET 
+            maxMessages = ?, 
+            showPlatformIcons = ?, 
+            fontSize = ?, 
+            fontWeight = ?, 
+            fontStyle = ?, 
+            fontFamily = ?, 
+            textWrap = ? 
+        WHERE id = 1`,
+        [
+            maxMessages,
+            showPlatformIcons,
+            fontSize || 14,
+            fontWeight || 'normal',
+            fontStyle || 'normal',
+            fontFamily || 'Inter',
+            textWrap !== undefined ? textWrap : 1
+        ],
         function (err) {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ success: true });
@@ -90,13 +107,18 @@ app.use('/auth/youtube', youtubeAuthResult);
 // Special internal route to tell the platforms to attempt reconnect after auth
 app.get('/api/refresh-connections', async (req, res) => {
     console.log('[System] Attempting to reconnect platform managers using latest DB tokens...');
-    twitchManager.disconnect();
-    await twitchManager.connect();
+    try {
+        twitchManager.disconnect();
+        await twitchManager.connect().catch(err => console.error('[Twitch] Reconnect init error:', err.message));
 
-    youtubeManager.disconnect();
-    await youtubeManager.connect();
+        youtubeManager.disconnect();
+        await youtubeManager.connect().catch(err => console.error('[YouTube] Reconnect init error:', err.message));
 
-    res.json({ success: true, message: "Reconnection triggered." });
+        res.json({ success: true, message: "Reconnection triggered." });
+    } catch (err) {
+        console.error('[System] Error during reconnection:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 app.get('/auth/kick', (req, res) => {
@@ -108,8 +130,13 @@ app.post('/api/moderate', (req, res) => {
     const { platform, action, payload } = req.body;
     console.log(`[Moderation] Route hit for ${platform} - action: ${action}`);
 
+    if (action === 'clear_chat') {
+        io.emit('clear_chat');
+        return res.json({ success: true, message: 'Chat cleared globally' });
+    }
+
     // Switch on platform to execute action...
-    if (platform === 'twitch') twitchManager.timeout(payload.channel, payload.user, payload.duration || 600);
+    if (platform === 'twitch') twitchManager.timeout(payload?.channel, payload?.user, payload?.duration || 600);
 
     res.json({ success: true, message: `Mock ${action} executed on ${platform}` });
 });

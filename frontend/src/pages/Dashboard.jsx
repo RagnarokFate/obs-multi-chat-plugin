@@ -3,16 +3,38 @@ import { io } from 'socket.io-client';
 
 const Dashboard = () => {
     const [messages, setMessages] = useState([]);
-    const [settings, setSettings] = useState({ maxMessages: 50, showPlatformIcons: true });
+    const [settings, setSettings] = useState({
+        maxMessages: 50,
+        showPlatformIcons: true,
+        fontSize: 14,
+        fontWeight: 'normal',
+        fontStyle: 'normal',
+        fontFamily: 'Inter',
+        textWrap: true
+    });
     const [isConnected, setIsConnected] = useState(false);
     const scrollRef = useRef(null);
+    const maxMessagesRef = useRef(settings.maxMessages);
+
+    // Keep ref in sync without triggering useEffect reconnection
+    useEffect(() => {
+        maxMessagesRef.current = settings.maxMessages;
+    }, [settings.maxMessages]);
 
     useEffect(() => {
         // Fetch initial settings from API
         fetch('http://localhost:3000/api/settings')
             .then(res => res.json())
             .then(data => {
-                if (data) setSettings({ maxMessages: data.maxMessages, showPlatformIcons: data.showPlatformIcons === 1 });
+                if (data) setSettings({
+                    maxMessages: data.maxMessages,
+                    showPlatformIcons: data.showPlatformIcons === 1,
+                    fontSize: data.fontSize || 14,
+                    fontWeight: data.fontWeight || 'normal',
+                    fontStyle: data.fontStyle || 'normal',
+                    fontFamily: data.fontFamily || 'Inter',
+                    textWrap: data.textWrap !== 0
+                });
             })
             .catch(err => console.error("Error fetching settings:", err));
 
@@ -25,9 +47,10 @@ const Dashboard = () => {
         socket.on('chat_message', (msg) => {
             setMessages(prev => {
                 const newArr = [...prev, msg];
+                const limit = maxMessagesRef.current;
                 // Enforce max messages limit immediately in Dashboard
-                if (newArr.length > settings.maxMessages) {
-                    return newArr.slice(newArr.length - settings.maxMessages);
+                if (newArr.length > limit) {
+                    return newArr.slice(newArr.length - limit);
                 }
                 return newArr;
             });
@@ -40,8 +63,12 @@ const Dashboard = () => {
             }, 50);
         });
 
+        socket.on('clear_chat', () => {
+            setMessages([]);
+        });
+
         return () => socket.disconnect();
-    }, [settings.maxMessages]);
+    }, []);
 
     const handleModeration = async (platform, action, payload) => {
         try {
@@ -63,7 +90,12 @@ const Dashboard = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     maxMessages: settings.maxMessages,
-                    showPlatformIcons: settings.showPlatformIcons
+                    showPlatformIcons: settings.showPlatformIcons,
+                    fontSize: settings.fontSize,
+                    fontWeight: settings.fontWeight,
+                    fontStyle: settings.fontStyle,
+                    fontFamily: settings.fontFamily,
+                    textWrap: settings.textWrap
                 })
             });
             alert("Settings Saved!");
@@ -83,16 +115,46 @@ const Dashboard = () => {
 
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 p-8">
-            <header className="mb-8 border-b border-slate-800 pb-4">
-                <h1 className="text-3xl font-bold text-primary">Multi-Chat Dashboard</h1>
-                <p className="text-slate-400">Manage chat from Twitch, YouTube, and Kick.</p>
+            <header className="mb-8 border-b border-slate-800 pb-4 flex flex-col lg:flex-row justify-between lg:items-end gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold text-primary">Multi-Chat Dashboard</h1>
+                    <p className="text-slate-400">Manage chat from Twitch, YouTube, and Kick.</p>
+                </div>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/chat-dock`);
+                            alert("Chat Dock URL Copied!");
+                        }}
+                        className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded border border-slate-700 text-slate-300 transition-colors flex items-center gap-1"
+                    >
+                        📋 Copy Chat Dock URL
+                    </button>
+                    <button
+                        onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/settings-dock`);
+                            alert("Settings Dock URL Copied!");
+                        }}
+                        className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded border border-slate-700 text-slate-300 transition-colors flex items-center gap-1"
+                    >
+                        📋 Copy Settings Dock URL
+                    </button>
+                </div>
             </header>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Chat Stream View */}
                 <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col h-[70vh]">
                     <div className="p-4 bg-slate-800/50 border-b border-slate-800 font-semibold flex justify-between items-center">
-                        <span>Live Chat</span>
+                        <div className="flex items-center gap-4">
+                            <span>Live Chat</span>
+                            <button
+                                onClick={() => handleModeration('system', 'clear_chat')}
+                                className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded text-red-400 border border-slate-700 transition-colors"
+                            >
+                                Clear Chat
+                            </button>
+                        </div>
                         <span className={`text-xs px-2 py-1 rounded-full ${isConnected ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
                             {isConnected ? 'Connected to Backend' : 'Disconnected'}
                         </span>
@@ -149,7 +211,7 @@ const Dashboard = () => {
                                     onClick={() => {
                                         const win = window.open('http://localhost:3000/auth/twitch', '_blank', 'width=500,height=600');
                                         const timer = setInterval(() => {
-                                            if (win.closed) {
+                                            if (win && win.closed) {
                                                 clearInterval(timer);
                                                 fetch('http://localhost:3000/api/refresh-connections')
                                                     .then(() => alert("Twitch Authenticated and Connected!"))
@@ -166,7 +228,7 @@ const Dashboard = () => {
                                     onClick={() => {
                                         const win = window.open('http://localhost:3000/auth/youtube', '_blank', 'width=500,height=600');
                                         const timer = setInterval(() => {
-                                            if (win.closed) {
+                                            if (win && win.closed) {
                                                 clearInterval(timer);
                                                 fetch('http://localhost:3000/api/refresh-connections')
                                                     .then(() => alert("YouTube Authenticated! Make sure you are live to ingest chat."))
@@ -201,7 +263,59 @@ const Dashboard = () => {
                                     <span>200</span>
                                 </div>
                             </div>
-                            <div>
+
+                            <hr className="border-slate-800 my-2" />
+                            <h3 className="text-sm font-bold text-slate-300">Typography Settings</h3>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs text-slate-400 mb-1">Font Family</label>
+                                    <select
+                                        value={settings.fontFamily}
+                                        onChange={(e) => setSettings({ ...settings, fontFamily: e.target.value })}
+                                        className="w-full bg-slate-800 text-sm p-1.5 rounded border border-slate-700 focus:ring-1 focus:ring-primary outline-none"
+                                    >
+                                        <option value="Inter">Inter (Sans)</option>
+                                        <option value="Roboto">Roboto</option>
+                                        <option value="Outfit">Outfit</option>
+                                        <option value="monospace">Monospace</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-slate-400 mb-1">Font Size ({settings.fontSize}px)</label>
+                                    <input
+                                        type="range" min="10" max="36"
+                                        value={settings.fontSize}
+                                        onChange={(e) => setSettings({ ...settings, fontSize: parseInt(e.target.value) })}
+                                        className="w-full mt-1"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                <label className="flex items-center gap-2 text-sm bg-slate-800/50 px-2 py-1 rounded border border-slate-700/50 cursor-pointer hover:bg-slate-700 transition">
+                                    <input
+                                        type="checkbox"
+                                        checked={settings.fontWeight === 'bold'}
+                                        onChange={(e) => setSettings({ ...settings, fontWeight: e.target.checked ? 'bold' : 'normal' })}
+                                        className="rounded bg-slate-900 border-slate-700 text-primary"
+                                    />
+                                    <strong>Bold</strong>
+                                </label>
+                                <label className="flex items-center gap-2 text-sm bg-slate-800/50 px-2 py-1 rounded border border-slate-700/50 cursor-pointer hover:bg-slate-700 transition">
+                                    <input
+                                        type="checkbox"
+                                        checked={settings.fontStyle === 'italic'}
+                                        onChange={(e) => setSettings({ ...settings, fontStyle: e.target.checked ? 'italic' : 'normal' })}
+                                        className="rounded bg-slate-900 border-slate-700 text-primary"
+                                    />
+                                    <em>Italic</em>
+                                </label>
+                            </div>
+
+                            <hr className="border-slate-800 my-2" />
+
+                            <div className="space-y-2">
                                 <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
                                     <input
                                         type="checkbox"
@@ -210,6 +324,15 @@ const Dashboard = () => {
                                         className="rounded bg-slate-800 border-slate-700 text-primary focus:ring-primary"
                                     />
                                     Show Platform Icons in Overlay
+                                </label>
+                                <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={settings.textWrap}
+                                        onChange={(e) => setSettings({ ...settings, textWrap: e.target.checked })}
+                                        className="rounded bg-slate-800 border-slate-700 text-primary focus:ring-primary"
+                                    />
+                                    Enable Text Wrapping
                                 </label>
                             </div>
                         </div>

@@ -63,7 +63,9 @@ class TwitchManager {
     }
 
     disconnect() {
-        this.client.disconnect();
+        if (this.client) {
+            this.client.disconnect().catch(err => console.error('[Twitch] Disconnect error:', err));
+        }
         console.log('[Twitch] Disconnected.');
     }
 

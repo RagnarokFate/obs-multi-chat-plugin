@@ -21,7 +21,14 @@ db.serialize(() => {
     id INTEGER PRIMARY KEY CHECK (id = 1),
     maxMessages INTEGER DEFAULT 50,
     showPlatformIcons BOOLEAN DEFAULT 1
-  )`);
+  )`, () => {
+    // Dynamically migrate existing tables silently
+    db.run("ALTER TABLE settings ADD COLUMN fontSize INTEGER DEFAULT 14", () => { });
+    db.run("ALTER TABLE settings ADD COLUMN fontWeight TEXT DEFAULT 'normal'", () => { });
+    db.run("ALTER TABLE settings ADD COLUMN fontStyle TEXT DEFAULT 'normal'", () => { });
+    db.run("ALTER TABLE settings ADD COLUMN fontFamily TEXT DEFAULT 'Inter'", () => { });
+    db.run("ALTER TABLE settings ADD COLUMN textWrap BOOLEAN DEFAULT 1", () => { });
+  });
 
   // Store API OAuth Tokens
   db.run(`CREATE TABLE IF NOT EXISTS tokens (
